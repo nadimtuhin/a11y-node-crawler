@@ -109,9 +109,24 @@ export function toHtml(data: ParsedResults): string {
 </html>`;
 }
 
+export function toCsv(data: ParsedResults): string {
+  const header = 'id,impact,description,nodes,helpUrl';
+  if (data.violations.length === 0) return header + '\n';
+  const rows = data.violations.map((v) =>
+    [
+      v.id,
+      v.impact ?? 'unknown',
+      `"${v.description.replace(/"/g, '""')}"`,
+      v.nodes.length,
+      v.helpUrl,
+    ].join(',')
+  );
+  return [header, ...rows].join('\n') + '\n';
+}
+
 export function saveReport(
   data: ParsedResults,
-  format: 'json' | 'html',
+  format: 'json' | 'html' | 'csv',
   reportsDir = './reports'
 ): string {
   mkdirSync(reportsDir, { recursive: true });
@@ -119,7 +134,10 @@ export function saveReport(
   const ts = data.timestamp.replace(/[:.]/g, '-');
   const filename = `${slug}_${data.level}_${ts}.${format}`;
   const filepath = join(reportsDir, filename);
-  const content = format === 'html' ? toHtml(data) : JSON.stringify(data, null, 2);
+  let content: string;
+  if (format === 'html') content = toHtml(data);
+  else if (format === 'csv') content = toCsv(data);
+  else content = JSON.stringify(data, null, 2);
   writeFileSync(filepath, content, 'utf8');
   return filepath;
 }

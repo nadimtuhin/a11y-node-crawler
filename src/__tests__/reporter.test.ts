@@ -1,4 +1,4 @@
-import { toPlainText, toHtml, saveReport, ParsedResults } from '../reporter';
+import { toPlainText, toHtml, toCsv, saveReport, ParsedResults } from '../reporter';
 import { WcagLevel } from '../filter';
 import { mkdirSync, rmSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
@@ -60,7 +60,47 @@ describe('toHtml', () => {
   });
 });
 
-describe('saveReport', () => {
+describe('toCsv', () => {
+  test('contains header row', () => {
+    const csv = toCsv(baseData);
+    expect(csv.startsWith('id,impact,description,nodes,helpUrl')).toBe(true);
+  });
+
+  test('contains violation row', () => {
+    const csv = toCsv(baseData);
+    expect(csv).toContain('color-contrast');
+    expect(csv).toContain('serious');
+  });
+
+  test('header only when no violations', () => {
+    const csv = toCsv({ ...baseData, violations: [] });
+    expect(csv.trim()).toBe('id,impact,description,nodes,helpUrl');
+  });
+
+  test('escapes double quotes in description', () => {
+    const v = makeViolation('test-rule');
+    (v as any).description = 'Has "quotes"';
+    const csv = toCsv({ ...baseData, violations: [v] });
+    expect(csv).toContain('"Has ""quotes"""');
+  });
+});
+
+describe('saveReport csv', () => {
+  const tmpDir = '/tmp/a11y-csv-reports';
+  beforeEach(() => mkdirSync(tmpDir, { recursive: true }));
+  afterEach(() => rmSync(tmpDir, { recursive: true, force: true }));
+
+  test('saves CSV file', () => {
+    const path = saveReport(baseData, 'csv', tmpDir);
+    expect(path.endsWith('.csv')).toBe(true);
+    const content = readFileSync(path, 'utf8');
+    expect(content).toContain('id,impact');
+    expect(content).toContain('color-contrast');
+  });
+});
+
+
+describe('saveReport json/html', () => {
   const tmpDir = '/tmp/a11y-test-reports';
 
   beforeEach(() => mkdirSync(tmpDir, { recursive: true }));
