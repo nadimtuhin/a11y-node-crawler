@@ -1,9 +1,7 @@
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-
-export const tsjPreset = require('ts-jest/presets');
-
-export default {
-  ...tsjPreset.defaultsESM,
+/** @type {import('ts-jest').JestConfigWithTsJest} */
+module.exports = {
+  preset: 'ts-jest',
   testEnvironment: 'node',
+  testMatch: ['**/__tests__/**/*.test.ts', '**/index.test.ts'],
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'json'],
 };
