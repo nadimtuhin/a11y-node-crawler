@@ -9,6 +9,8 @@ jest.mock('puppeteer-core', () => ({
 import puppeteer from 'puppeteer-core';
 import { scanUrl, getChromePath } from '../scanner';
 import type { AxeResults } from 'axe-core';
+import { writeFileSync, rmSync } from 'fs';
+import { join } from 'path';
 
 const mockAxeResults: Partial<AxeResults> = {
   url: 'https://example.com',
@@ -82,5 +84,34 @@ describe('scanUrl', () => {
       expect.objectContaining({ executablePath: '/custom/chrome' })
     );
     delete process.env['CHROME_PATH'];
+  });
+
+  test('throws when customRulesPath does not exist', async () => {
+    const browser = makeMockBrowser();
+    (puppeteer.launch as jest.Mock).mockResolvedValue(browser);
+
+    await expect(
+      scanUrl('https://example.com', { customRulesPath: '/nonexistent/rules.json' })
+    ).rejects.toThrow('customRulesPath not found');
+  });
+
+  test('passes custom rules to axe.configure', async () => {
+    const rulesPath = join('/tmp', `a11y-rules-${Date.now()}.json`);
+    const rules = [{ id: 'custom-rule', enabled: true }];
+    writeFileSync(rulesPath, JSON.stringify(rules));
+
+    const browser = makeMockBrowser();
+    // reset mock so evaluate can handle 3 calls: axeSource, axe.run (with rules)
+    browser._page.evaluate
+      .mockResolvedValueOnce(undefined)       // axeSource
+      .mockResolvedValueOnce(mockAxeResults); // axe.run with rules
+    (puppeteer.launch as jest.Mock).mockResolvedValue(browser);
+
+    const results = await scanUrl('https://example.com', { customRulesPath: rulesPath });
+    expect(results).toMatchObject({ url: 'https://example.com' });
+    // evaluate called twice: axeSource + axe.run(rules)
+    expect(browser._page.evaluate).toHaveBeenCalledTimes(2);
+
+    rmSync(rulesPath, { force: true });
   });
 });

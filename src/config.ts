@@ -12,6 +12,10 @@ export interface A11yConfig {
   format?: 'json' | 'text' | 'html' | 'csv';
   save?: boolean;
   reportsDir?: string;
+  /** Path to a JSON file containing custom axe-core rules array */
+  customRulesPath?: string;
+  /** Path to SQLite DB for scan history (default: ./history.db) */
+  historyDb?: string;
 }
 
 const CONFIG_NAMES = ['.a11yrc.json', '.a11yrc.yaml', '.a11yrc.yml'];
