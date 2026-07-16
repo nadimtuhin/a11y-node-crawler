@@ -1,0 +1,10 @@
+services:
+  crawler:
+    build: .
+    environment:
+      - CHROME_PATH=/usr/bin/chromium
+    volumes:
+      - ./reports:/app/reports
+      - ./history.db:/app/history.db
+    # Override CMD: docker compose run crawler --url https://example.com
+    # ponytail: no network_mode host; add when scanning localhost targets
