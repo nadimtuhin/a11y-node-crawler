@@ -1,4 +1,4 @@
-import { toPlainText, toHtml, toCsv, saveReport, ParsedResults } from '../reporter';
+import { toPlainText, toHtml, toCsv, saveReport, sendWebhook, ParsedResults } from '../reporter';
 import { WcagLevel } from '../filter';
 import { mkdirSync, rmSync, existsSync, readFileSync } from 'fs';
 import { join } from 'path';
@@ -125,5 +125,41 @@ describe('saveReport json/html', () => {
     const nested = join(tmpDir, 'deep/nested');
     const path = saveReport(baseData, 'json', nested);
     expect(existsSync(path)).toBe(true);
+  });
+});
+
+describe('sendWebhook', () => {
+  const origFetch = global.fetch;
+  afterEach(() => { global.fetch = origFetch; });
+
+  test('POSTs JSON to webhook URL', async () => {
+    const mockFetch = jest.fn().mockResolvedValue({ ok: true, status: 200, statusText: 'OK' });
+    global.fetch = mockFetch as any;
+
+    await sendWebhook('https://hooks.example.com/test', baseData);
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://hooks.example.com/test',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.text).toContain('https://example.com');
+    expect(body.text).toContain('violation');
+  });
+
+  test('throws on non-ok response', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 400, statusText: 'Bad Request' }) as any;
+    await expect(sendWebhook('https://hooks.example.com/test', baseData)).rejects.toThrow('400');
+  });
+
+  test('no-violation report uses success emoji', async () => {
+    const mockFetch = jest.fn().mockResolvedValue({ ok: true, status: 200, statusText: 'OK' });
+    global.fetch = mockFetch as any;
+    await sendWebhook('https://hooks.example.com/test', { ...baseData, violations: [] });
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.text).toContain('✅');
   });
 });

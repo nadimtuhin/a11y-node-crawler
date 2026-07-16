@@ -15,7 +15,6 @@ export interface ParsedResults {
 export function toPlainText(data: ParsedResults): string {
   const lines: string[] = [
     `A11y Scan Report`,
-    `================`,
     `URL:       ${data.url}`,
     `WCAG:      ${data.level}`,
     `Timestamp: ${data.timestamp}`,
@@ -32,7 +31,6 @@ export function toPlainText(data: ParsedResults): string {
     lines.push('No violations found at this WCAG level. ✓');
   } else {
     lines.push('Violations');
-    lines.push('----------');
     data.violations.forEach((v, i) => {
       lines.push(`${i + 1}. [${v.impact?.toUpperCase() ?? 'UNKNOWN'}] ${v.id}`);
       lines.push(`   Description: ${v.description}`);
@@ -140,4 +138,30 @@ export function saveReport(
   else content = JSON.stringify(data, null, 2);
   writeFileSync(filepath, content, 'utf8');
   return filepath;
+}
+
+/**
+ * Send scan results to a Slack/Discord webhook.
+ * Slack and Discord both accept the same `{"text": "..."}` payload.
+ */
+export async function sendWebhook(
+  webhookUrl: string,
+  data: ParsedResults
+): Promise<void> {
+  const status = data.violations.length === 0 ? '✅ No violations' : `⚠️ ${data.violations.length} violation(s)`;
+  const text = [
+    `*A11y Scan Report* — ${data.url}`,
+    `WCAG: ${data.level} | ${status} | Passes: ${data.passes} | Incomplete: ${data.incomplete}`,
+    `Scanned: ${data.timestamp}`,
+  ].join('\n');
+
+  const res = await fetch(webhookUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Webhook POST failed: ${res.status} ${res.statusText}`);
+  }
 }

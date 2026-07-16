@@ -7,7 +7,7 @@ jest.mock('puppeteer-core', () => ({
 }));
 
 import puppeteer from 'puppeteer-core';
-import { scanUrl, getChromePath } from '../scanner';
+import { scanUrl, crawlUrls, getChromePath } from '../scanner';
 import type { AxeResults } from 'axe-core';
 import { writeFileSync, rmSync } from 'fs';
 import { join } from 'path';
@@ -21,12 +21,17 @@ const mockAxeResults: Partial<AxeResults> = {
   timestamp: new Date().toISOString(),
 };
 
-function makeMockBrowser() {
+function makeMockBrowser(links: string[] = []) {
   const mockPage = {
     goto: jest.fn().mockResolvedValue(undefined),
     evaluate: jest.fn()
       .mockResolvedValueOnce(undefined)         // axeSource injection
       .mockResolvedValueOnce(mockAxeResults),   // axe.run()
+    setCookie: jest.fn().mockResolvedValue(undefined),
+    keyboard: { press: jest.fn().mockResolvedValue(undefined) },
+    waitForNavigation: jest.fn().mockResolvedValue(undefined),
+    type: jest.fn().mockResolvedValue(undefined),
+    close: jest.fn().mockResolvedValue(undefined),
   };
   return {
     newPage: jest.fn().mockResolvedValue(mockPage),
@@ -113,5 +118,82 @@ describe('scanUrl', () => {
     expect(browser._page.evaluate).toHaveBeenCalledTimes(2);
 
     rmSync(rulesPath, { force: true });
+  });
+
+  test('injects cookies when auth.cookies provided', async () => {
+    const browser = makeMockBrowser();
+    // auth page + scan page each get a new page
+    const authPage = {
+      setCookie: jest.fn().mockResolvedValue(undefined),
+      goto: jest.fn().mockResolvedValue(undefined),
+      evaluate: jest.fn()
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce(mockAxeResults),
+      keyboard: { press: jest.fn().mockResolvedValue(undefined) },
+      waitForNavigation: jest.fn().mockResolvedValue(undefined),
+      type: jest.fn().mockResolvedValue(undefined),
+      close: jest.fn().mockResolvedValue(undefined),
+    };
+    browser.newPage.mockResolvedValue(authPage);
+    (puppeteer.launch as jest.Mock).mockResolvedValue(browser);
+
+    await scanUrl('https://example.com', {
+      auth: { cookies: 'session=abc; token=xyz' },
+    });
+
+    expect(authPage.setCookie).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'session', value: 'abc' })
+    );
+    expect(authPage.setCookie).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'token', value: 'xyz' })
+    );
+  });
+});
+
+describe('crawlUrls', () => {
+  afterEach(() => jest.clearAllMocks());
+
+  function makeMultiPageBrowser(pages: string[]) {
+    let callCount = 0;
+    const makePageMock = (url: string) => ({
+      goto: jest.fn().mockResolvedValue(undefined),
+      evaluate: jest.fn()
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce({ ...mockAxeResults, url })
+        .mockResolvedValueOnce([]), // extractLinks returns []
+      close: jest.fn().mockResolvedValue(undefined),
+      setCookie: jest.fn().mockResolvedValue(undefined),
+      keyboard: { press: jest.fn() },
+      waitForNavigation: jest.fn().mockResolvedValue(undefined),
+      type: jest.fn().mockResolvedValue(undefined),
+    });
+
+    const browser = {
+      newPage: jest.fn().mockImplementation(() => {
+        const url = pages[callCount] ?? pages[0];
+        callCount++;
+        return Promise.resolve(makePageMock(url));
+      }),
+      close: jest.fn().mockResolvedValue(undefined),
+    };
+    return browser;
+  }
+
+  test('returns single result when depth=0', async () => {
+    const browser = makeMultiPageBrowser(['https://example.com']);
+    (puppeteer.launch as jest.Mock).mockResolvedValue(browser);
+
+    const results = await crawlUrls('https://example.com', { depth: 0 });
+    expect(results).toHaveLength(1);
+    expect(results[0].url).toBe('https://example.com');
+  });
+
+  test('deduplicates visited URLs', async () => {
+    const browser = makeMultiPageBrowser(['https://example.com']);
+    (puppeteer.launch as jest.Mock).mockResolvedValue(browser);
+
+    // depth=0 so no link following — start URL visited once
+    const results = await crawlUrls('https://example.com', { depth: 0 });
+    expect(results).toHaveLength(1);
   });
 });

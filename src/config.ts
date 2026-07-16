@@ -6,6 +6,21 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import type { WcagLevel } from './filter';
 
+export interface AuthConfig {
+  /** Cookie string to inject (e.g. "session=abc; token=xyz") */
+  cookies?: string;
+  /** Form-fill login: URL to POST credentials to */
+  loginUrl?: string;
+  /** Form field name for username/email */
+  usernameField?: string;
+  /** Form field name for password */
+  passwordField?: string;
+  /** Username/email value */
+  username?: string;
+  /** Password value */
+  password?: string;
+}
+
 export interface A11yConfig {
   url?: string;
   level?: WcagLevel;
@@ -16,6 +31,14 @@ export interface A11yConfig {
   customRulesPath?: string;
   /** Path to SQLite DB for scan history (default: ./history.db) */
   historyDb?: string;
+  /** Deep crawl: follow internal links up to this many levels (default: 0 = single page) */
+  depth?: number;
+  /** Max pages to crawl (default: 50) */
+  maxPages?: number;
+  /** Auth config for protected pages */
+  auth?: AuthConfig;
+  /** Webhook URL for Slack/Discord notifications */
+  webhookUrl?: string;
 }
 
 const CONFIG_NAMES = ['.a11yrc.json', '.a11yrc.yaml', '.a11yrc.yml'];
@@ -33,7 +56,7 @@ function parseYaml(content: string): Record<string, unknown> {
     if (val === 'true') result[key] = true;
     else if (val === 'false') result[key] = false;
     else if (!isNaN(Number(val)) && val !== '') result[key] = Number(val);
-    else result[key] = val.replace(/^['"]|['"]$/g, '');
+    else result[key] = val.replace(/^['\"]|['\"]$/g, '');
   }
   return result;
 }
