@@ -1,4 +1,4 @@
-import { openDb, logScan, getHistory } from '../history';
+import { openDb, logScan, getHistory, validateDbPath } from '../history';
 import { rmSync } from 'fs';
 import { join } from 'path';
 import type { AxeResults } from 'axe-core';
@@ -60,5 +60,36 @@ describe('history', () => {
     const rows = getHistory(db, 'https://filter-test.com');
     expect(rows.every(r => r.url === 'https://filter-test.com')).toBe(true);
     db.close();
+  });
+
+  // Security: prepared statements prevent SQL injection (#24)
+  test('getHistory is safe against SQL injection in url parameter', () => {
+    const db = openDb(dbPath);
+    logScan(db, makeResults('https://safe.com'));
+    // Malicious input — should return empty, not error or dump all rows
+    const rows = getHistory(db, "' OR '1'='1");
+    expect(rows).toEqual([]);
+    db.close();
+  });
+});
+
+describe('validateDbPath', () => {
+  test('returns resolved path for valid input', () => {
+    const result = validateDbPath('/tmp/test.db');
+    expect(result).toBe('/tmp/test.db');
+  });
+
+  test('normalizes path traversal components', () => {
+    const result = validateDbPath('/tmp/../tmp/test.db');
+    expect(result).toBe('/tmp/test.db');
+  });
+
+  test('throws when path escapes allowedBase', () => {
+    expect(() => validateDbPath('/etc/passwd', '/tmp')).toThrow('outside allowed directory');
+  });
+
+  test('allows path within allowedBase', () => {
+    const result = validateDbPath('/tmp/test.db', '/tmp');
+    expect(result).toBe('/tmp/test.db');
   });
 });

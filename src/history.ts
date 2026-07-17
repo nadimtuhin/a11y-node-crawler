@@ -1,9 +1,14 @@
 /**
  * SQLite-backed scan history using better-sqlite3.
  * Stores one row per scan: url, timestamp, violation counts by impact.
+ *
+ * Security: all user-supplied values go through db.prepare() bound parameters.
+ * The db.exec() call in openDb uses only a static string literal (DDL) — no
+ * user input ever reaches it, so it is not a SQL-injection risk (#24).
  */
 import Database from 'better-sqlite3';
 import { join } from 'path';
+import { resolve, normalize } from 'path';
 import type { AxeResults } from 'axe-core';
 
 export interface HistoryRow {
@@ -17,9 +22,27 @@ export interface HistoryRow {
   total: number;
 }
 
+/**
+ * Validate dbPath stays within an allowed base directory.
+ * Rejects path traversal attempts (e.g. "../../etc/passwd").
+ */
+export function validateDbPath(dbPath: string, allowedBase?: string): string {
+  const resolved = resolve(normalize(dbPath));
+  if (allowedBase) {
+    const base = resolve(allowedBase);
+    if (!resolved.startsWith(base + '/') && resolved !== base) {
+      throw new Error(`DB path outside allowed directory: ${dbPath}`);
+    }
+  }
+  return resolved;
+}
+
 export function openDb(dbPath?: string): Database.Database {
-  const p = dbPath ?? join(process.cwd(), 'history.db');
+  const rawPath = dbPath ?? join(process.cwd(), 'history.db');
+  // ponytail: allowedBase not enforced here (caller may use any dir); enforce at call-sites that receive external input
+  const p = resolve(normalize(rawPath));
   const db = new Database(p);
+  // Static DDL only — no interpolated values; exec() is safe here
   db.exec(`
     CREATE TABLE IF NOT EXISTS scan_history (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
