@@ -47,4 +47,43 @@ describe('loadConfig', () => {
     const cfg = loadConfig(tmpDir);
     expect(cfg.level).toBe('AAA');
   });
+
+  // Security: prototype pollution prevention (#25)
+  test('blocks __proto__ key in JSON config', () => {
+    // Crafted JSON — standard JSON.parse won't actually set __proto__ but
+    // our sanitizeConfig must not copy it to cfg
+    writeFileSync(join(tmpDir, '.a11yrc.json'), '{"level":"AA","__proto__":{"polluted":true}}');
+    const cfg = loadConfig(tmpDir) as any;
+    expect(cfg.level).toBe('AA');
+    expect(cfg.polluted).toBeUndefined();
+    expect(({} as any).polluted).toBeUndefined(); // prototype not polluted
+  });
+
+  test('blocks __proto__ key in YAML config', () => {
+    writeFileSync(join(tmpDir, '.a11yrc.yaml'), '__proto__: bad\nlevel: AA\n');
+    const cfg = loadConfig(tmpDir) as any;
+    expect(cfg.level).toBe('AA');
+    // __proto__ must not be set as an own property on the returned config
+    expect(Object.prototype.hasOwnProperty.call(cfg, '__proto__')).toBe(false);
+    // prototype must not be polluted — a fresh object must not have 'polluted'
+    expect(Object.prototype.hasOwnProperty.call({}, 'bad')).toBe(false);
+  });
+
+  test('rejects unknown format values', () => {
+    writeFileSync(join(tmpDir, '.a11yrc.json'), JSON.stringify({ format: 'evil' }));
+    const cfg = loadConfig(tmpDir);
+    expect(cfg.format).toBeUndefined();
+  });
+
+  test('rejects unknown level values', () => {
+    writeFileSync(join(tmpDir, '.a11yrc.json'), JSON.stringify({ level: 'EVIL' }));
+    const cfg = loadConfig(tmpDir);
+    expect(cfg.level).toBeUndefined();
+  });
+
+  test('ignores non-object JSON (array)', () => {
+    writeFileSync(join(tmpDir, '.a11yrc.json'), '["not","an","object"]');
+    const cfg = loadConfig(tmpDir);
+    expect(cfg).toEqual({});
+  });
 });
