@@ -122,19 +122,84 @@ export function toCsv(data: ParsedResults): string {
   return [header, ...rows].join('\n') + '\n';
 }
 
+export function toMarkdown(data: ParsedResults): string {
+  const lines: string[] = [
+    `# A11y Scan Report`,
+    ``,
+    `| Field | Value |`,
+    `|---|---|`,
+    `| URL | ${data.url} |`,
+    `| WCAG Level | ${data.level} |`,
+    `| Timestamp | ${data.timestamp} |`,
+    `| Violations | ${data.violations.length} |`,
+    `| Passes | ${data.passes} |`,
+    `| Incomplete | ${data.incomplete} |`,
+    ``,
+  ];
+
+  if (data.violations.length === 0) {
+    lines.push('> ✅ No violations found at WCAG level ' + data.level);
+  } else {
+    lines.push('## Violations', '');
+    data.violations.forEach((v, i) => {
+      lines.push(
+        `### ${i + 1}. \`${v.id}\` — ${v.impact?.toUpperCase() ?? 'UNKNOWN'}`,
+        ``,
+        v.description,
+        ``,
+        `- **Nodes affected:** ${v.nodes.length}`,
+        `- **Help:** <${v.helpUrl}>`,
+        ``,
+      );
+    });
+  }
+
+  return lines.join('\n');
+}
+
+export function toXml(data: ParsedResults): string {
+  const esc = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  const violationNodes = data.violations.map((v) =>
+    [
+      `  <violation id="${esc(v.id)}" impact="${esc(v.impact ?? 'unknown')}" nodes="${v.nodes.length}">`,
+      `    <description>${esc(v.description)}</description>`,
+      `    <helpUrl>${esc(v.helpUrl)}</helpUrl>`,
+      `  </violation>`,
+    ].join('\n')
+  );
+
+  return [
+    `<?xml version="1.0" encoding="UTF-8"?>`,
+    `<a11yReport>`,
+    `  <url>${esc(data.url)}</url>`,
+    `  <wcagLevel>${esc(data.level)}</wcagLevel>`,
+    `  <timestamp>${esc(data.timestamp)}</timestamp>`,
+    `  <summary violations="${data.violations.length}" passes="${data.passes}" incomplete="${data.incomplete}"/>`,
+    `  <violations>`,
+    ...violationNodes,
+    `  </violations>`,
+    `</a11yReport>`,
+  ].join('\n') + '\n';
+}
+
 export function saveReport(
   data: ParsedResults,
-  format: 'json' | 'html' | 'csv',
+  format: 'json' | 'html' | 'csv' | 'md' | 'xml',
   reportsDir = './reports'
 ): string {
   mkdirSync(reportsDir, { recursive: true });
   const slug = data.url.replace(/[^a-z0-9]/gi, '_').slice(0, 60);
   const ts = data.timestamp.replace(/[:.]/g, '-');
-  const filename = `${slug}_${data.level}_${ts}.${format}`;
+  const ext = format === 'md' ? 'md' : format;
+  const filename = `${slug}_${data.level}_${ts}.${ext}`;
   const filepath = join(reportsDir, filename);
   let content: string;
   if (format === 'html') content = toHtml(data);
   else if (format === 'csv') content = toCsv(data);
+  else if (format === 'md') content = toMarkdown(data);
+  else if (format === 'xml') content = toXml(data);
   else content = JSON.stringify(data, null, 2);
   writeFileSync(filepath, content, 'utf8');
   return filepath;
