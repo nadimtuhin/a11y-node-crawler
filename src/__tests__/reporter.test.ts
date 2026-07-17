@@ -97,6 +97,11 @@ describe('saveReport csv', () => {
     expect(content).toContain('id,impact');
     expect(content).toContain('color-contrast');
   });
+
+  // Security: file size limit (#31)
+  test('throws when report exceeds maxBytes', () => {
+    expect(() => saveReport(baseData, 'json', tmpDir, 10)).toThrow('exceeds max size');
+  });
 });
 
 
@@ -161,5 +166,22 @@ describe('sendWebhook', () => {
     await sendWebhook('https://hooks.example.com/test', { ...baseData, violations: [] });
     const body = JSON.parse(mockFetch.mock.calls[0][1].body);
     expect(body.text).toContain('✅');
+  });
+
+  // Security: HTTPS enforcement + credential masking (#33)
+  test('rejects non-https webhook URLs', async () => {
+    await expect(sendWebhook('http://hooks.example.com/test', baseData)).rejects.toThrow('HTTPS');
+  });
+
+  test('rejects invalid webhook URL', async () => {
+    await expect(sendWebhook('not-a-url', baseData)).rejects.toThrow('Invalid webhook URL');
+  });
+
+  test('masks credentials in error message on failure', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 403, statusText: 'Forbidden' }) as any;
+    // URL with embedded credentials — must not appear in thrown error
+    await expect(
+      sendWebhook('https://user:secret@hooks.example.com/test', baseData)
+    ).rejects.toThrow(expect.objectContaining({ message: expect.not.stringContaining('secret') }));
   });
 });

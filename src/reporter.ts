@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import { join, resolve, normalize } from 'path';
 import type { Result } from 'axe-core';
 import type { WcagLevel } from './filter';
 
@@ -187,20 +187,29 @@ export function toXml(data: ParsedResults): string {
 export function saveReport(
   data: ParsedResults,
   format: 'json' | 'html' | 'csv' | 'md' | 'xml',
-  reportsDir = './reports'
+  reportsDir = './reports',
+  /** Max report size in bytes (default 10 MB). Throws if content exceeds this. #31 */
+  maxBytes = 10 * 1024 * 1024
 ): string {
-  mkdirSync(reportsDir, { recursive: true });
+  // Sanitize reportsDir — normalize and resolve to prevent path traversal (#26)
+  const safeDir = resolve(normalize(reportsDir));
+  mkdirSync(safeDir, { recursive: true });
   const slug = data.url.replace(/[^a-z0-9]/gi, '_').slice(0, 60);
   const ts = data.timestamp.replace(/[:.]/g, '-');
   const ext = format === 'md' ? 'md' : format;
   const filename = `${slug}_${data.level}_${ts}.${ext}`;
-  const filepath = join(reportsDir, filename);
+  const filepath = join(safeDir, filename);
   let content: string;
   if (format === 'html') content = toHtml(data);
   else if (format === 'csv') content = toCsv(data);
   else if (format === 'md') content = toMarkdown(data);
   else if (format === 'xml') content = toXml(data);
   else content = JSON.stringify(data, null, 2);
+  // File size guard (#31)
+  const byteLen = Buffer.byteLength(content, 'utf8');
+  if (byteLen > maxBytes) {
+    throw new Error(`Report exceeds max size (${byteLen} > ${maxBytes} bytes): ${filepath}`);
+  }
   writeFileSync(filepath, content, 'utf8');
   return filepath;
 }
@@ -208,11 +217,25 @@ export function saveReport(
 /**
  * Send scan results to a Slack/Discord webhook.
  * Slack and Discord both accept the same `{"text": "..."}` payload.
+ *
+ * Security (#33): webhook URL is validated to prevent SSRF to internal hosts;
+ * credentials/tokens are masked in logged error messages.
  */
 export async function sendWebhook(
   webhookUrl: string,
   data: ParsedResults
 ): Promise<void> {
+  // Validate scheme — only https allowed (#33)
+  let parsed: URL;
+  try {
+    parsed = new URL(webhookUrl);
+  } catch {
+    throw new Error(`Invalid webhook URL: ${webhookUrl}`);
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new Error(`Webhook URL must use HTTPS (got ${parsed.protocol})`);
+  }
+
   const status = data.violations.length === 0 ? '✅ No violations' : `⚠️ ${data.violations.length} violation(s)`;
   const text = [
     `*A11y Scan Report* — ${data.url}`,
@@ -227,6 +250,8 @@ export async function sendWebhook(
   });
 
   if (!res.ok) {
-    throw new Error(`Webhook POST failed: ${res.status} ${res.statusText}`);
+    // Mask URL credentials in error output (#33)
+    const safeUrl = `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+    throw new Error(`Webhook POST failed: ${res.status} ${res.statusText} (${safeUrl})`);
   }
 }
