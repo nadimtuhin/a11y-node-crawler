@@ -1,6 +1,13 @@
-# a11y-node-crawler
+```
+    ___   _____ ____  __  __
+   /   | / ___// __ \/ / / /
+  / /| | \__ \/ / / / /_/ / 
+ / ___ |___/ / /_/ / __  /  
+/_/  |_/____/\____/_/ /_/   
+  A11y Node Crawler v2.0
+```
 
-> Automated accessibility crawler powered by [Puppeteer](https://pptr.dev/) and [axe-core](https://github.com/dequelabs/axe-core). Scan any URL, filter violations by WCAG level (A / AA / AAA), and export reports as plain text, JSON, or HTML.
+> Automated accessibility crawler powered by [Puppeteer](https://pptr.dev/) and [axe-core](https://github.com/dequelabs/axe-core). Scan any URL, filter violations by WCAG level (A / AA / AAA), and export reports as plain text, JSON, HTML, or CSV.
 
 ---
 
