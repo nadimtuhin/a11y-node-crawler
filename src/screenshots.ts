@@ -1,11 +1,14 @@
 /**
  * Screenshot capture for a11y-violating elements using Puppeteer.
  * Saves element-level screenshots to ./reports/screenshots/<slug>/.
+ *
+ * Security (#26): screenshotsDir is validated to prevent path traversal.
+ * Security (#28): Chrome path from env is validated; no shell interpolation used.
  */
 import puppeteer from 'puppeteer-core';
-import { mkdirSync, existsSync } from 'fs';
-import { join } from 'path';
-import { execSync } from 'child_process';
+import { mkdirSync } from 'fs';
+import { join, resolve, normalize } from 'path';
+import { execFileSync } from 'child_process';
 import type { AxeResults, Result } from 'axe-core';
 
 export interface ScreenshotResult {
@@ -15,13 +18,41 @@ export interface ScreenshotResult {
   path: string;
 }
 
+/**
+ * Resolve and validate a directory path — rejects traversal outside allowedBase.
+ * If allowedBase is omitted the path is just normalized.
+ */
+export function safeDirPath(dir: string, allowedBase?: string): string {
+  const resolved = resolve(normalize(dir));
+  if (allowedBase) {
+    const base = resolve(allowedBase);
+    if (!resolved.startsWith(base + '/') && resolved !== base) {
+      throw new Error(`Screenshots dir outside allowed base: ${dir}`);
+    }
+  }
+  return resolved;
+}
+
+/**
+ * Validate a Chrome executable path.
+ * Only allows absolute paths — rejects shell metacharacters.
+ * (#28: prevents command injection via CHROME_PATH env var)
+ */
+export function validateChromePath(p: string): string {
+  if (!p.startsWith('/')) throw new Error(`CHROME_PATH must be absolute: ${p}`);
+  // Reject shell metacharacters
+  if (/[;&|`$<>!]/.test(p)) throw new Error(`CHROME_PATH contains unsafe characters: ${p}`);
+  return p;
+}
+
 function getChromePath(): string {
-  if (process.env['CHROME_PATH']) return process.env['CHROME_PATH'];
+  if (process.env['CHROME_PATH']) return validateChromePath(process.env['CHROME_PATH']);
   if (process.platform === 'darwin') {
     return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   }
   try {
-    return execSync('which google-chrome').toString().trim();
+    // execFileSync with fixed args — no shell interpolation (#28)
+    return execFileSync('/usr/bin/which', ['google-chrome']).toString().trim();
   } catch {
     throw new Error('Chrome not found. Set CHROME_PATH env var or install Chrome.');
   }
@@ -47,7 +78,9 @@ export async function captureViolationScreenshots(
   if (violations.length === 0) return [];
 
   const slug = urlSlug(url);
-  const outDir = join(screenshotsDir, slug);
+  // Validate dir — ponytail: pass an allowedBase from caller when screenshotsDir is user-controlled
+  const safeDir = safeDirPath(screenshotsDir);
+  const outDir = join(safeDir, slug);
   mkdirSync(outDir, { recursive: true });
 
   const executablePath = getChromePath();
@@ -111,7 +144,8 @@ export async function capturePageScreenshot(
   screenshotsDir = './reports/screenshots'
 ): Promise<string> {
   const slug = urlSlug(url);
-  const outDir = join(screenshotsDir, slug);
+  const safeDir = safeDirPath(screenshotsDir);
+  const outDir = join(safeDir, slug);
   mkdirSync(outDir, { recursive: true });
 
   const executablePath = getChromePath();

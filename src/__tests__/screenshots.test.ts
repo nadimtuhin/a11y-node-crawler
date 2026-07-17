@@ -144,3 +144,38 @@ describe('capturePageScreenshot', () => {
     expect(browser.close).toHaveBeenCalled();
   });
 });
+
+// Security: path traversal + command injection (#26, #28)
+import { validateChromePath, safeDirPath } from '../screenshots';
+
+describe('validateChromePath', () => {
+  test('accepts valid absolute paths', () => {
+    expect(() => validateChromePath('/usr/bin/google-chrome')).not.toThrow();
+  });
+
+  test('rejects relative paths', () => {
+    expect(() => validateChromePath('google-chrome')).toThrow('absolute');
+  });
+
+  test('rejects paths with shell metacharacters', () => {
+    expect(() => validateChromePath('/usr/bin/chrome; rm -rf /')).toThrow('unsafe');
+    expect(() => validateChromePath('/usr/bin/chrome`id`')).toThrow('unsafe');
+    expect(() => validateChromePath('/usr/bin/chrome|bash')).toThrow('unsafe');
+  });
+});
+
+describe('safeDirPath', () => {
+  test('resolves valid dir', () => {
+    const p = safeDirPath('/tmp/screenshots');
+    expect(p).toBe('/tmp/screenshots');
+  });
+
+  test('normalizes traversal components', () => {
+    const p = safeDirPath('/tmp/../tmp/screenshots');
+    expect(p).toBe('/tmp/screenshots');
+  });
+
+  test('throws on traversal outside allowedBase', () => {
+    expect(() => safeDirPath('/etc/cron.d', '/tmp')).toThrow('outside allowed base');
+  });
+});
